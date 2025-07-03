@@ -5,7 +5,7 @@ import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { useBACnet } from '../context/BACnetContext';
 
-const { FiHome, FiSettings, FiDatabase, FiPlay, FiWifi, FiWifiOff } = FiIcons;
+const { FiHome, FiSettings, FiDatabase, FiPlay, FiWifi, FiWifiOff, FiServer } = FiIcons;
 
 function Header() {
   const location = useLocation();
@@ -55,15 +55,27 @@ function Header() {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
+                state.isConnected
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              <SafeIcon icon={state.isConnected ? FiServer : FiWifiOff} className="text-xs" />
+              <span>
+                {state.isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+            </motion.div>
+
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
                 state.device.isOnline
                   ? 'bg-green-100 text-green-700'
                   : 'bg-red-100 text-red-700'
               }`}
             >
-              <SafeIcon 
-                icon={state.device.isOnline ? FiWifi : FiWifiOff} 
-                className="text-xs" 
-              />
+              <SafeIcon icon={state.device.isOnline ? FiWifi : FiWifiOff} className="text-xs" />
               <span>
                 {state.device.isOnline ? 'Online' : 'Offline'}
               </span>
