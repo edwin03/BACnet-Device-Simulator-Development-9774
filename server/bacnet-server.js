@@ -3,9 +3,30 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { createServer } from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Find available port
+async function findAvailablePort(startPort = 3001) {
+  const net = await import('net');
+  
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(startPort, () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(findAvailablePort(startPort + 1));
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
 
 // BACnet Client Configuration
 const client = new bacnet({
@@ -350,17 +371,47 @@ app.post('/api/simulation', (req, res) => {
   res.json(deviceState.simulation);
 });
 
-// Start servers
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`API server running on port ${PORT}`);
-});
+// Start servers with port detection
+async function startServers() {
+  try {
+    // Find available port for API server
+    const apiPort = await findAvailablePort(3001);
+    
+    // Start API server
+    const server = app.listen(apiPort, () => {
+      console.log(`✅ API server running on port ${apiPort}`);
+      console.log(`📡 Web interface will be available at http://localhost:5174`);
+      console.log(`🔗 API endpoint: http://localhost:${apiPort}/api`);
+    });
 
-// Initialize BACnet services
-startBACnetServices();
+    // Handle server errors
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${apiPort} is already in use`);
+        process.exit(1);
+      } else {
+        console.error('❌ Server error:', err);
+        process.exit(1);
+      }
+    });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\nShutting down BACnet services...');
-  process.exit(0);
-});
+    // Initialize BACnet services
+    startBACnetServices();
+    
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+      console.log('\n🛑 Shutting down servers...');
+      server.close(() => {
+        console.log('✅ Servers closed');
+        process.exit(0);
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start servers:', error);
+    process.exit(1);
+  }
+}
+
+// Start the application
+startServers();

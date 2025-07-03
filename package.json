@@ -10,7 +10,9 @@
     "lint:error": "eslint . --quiet",
     "preview": "vite preview",
     "server": "node server/bacnet-server.js",
-    "dev:full": "concurrently \"npm run server\" \"npm run dev\""
+    "dev:full": "concurrently --names \"SERVER,WEB\" --prefix-colors \"blue,green\" \"npm run server\" \"npm run dev\"",
+    "kill-ports": "npx kill-port 3001 3002 3003 3004 3005 47808",
+    "clean-start": "npm run kill-ports && npm run dev:full"
   },
   "dependencies": {
     "@questlabs/react-sdk": "^2.1.9",
@@ -28,7 +30,8 @@
     "dgram": "^1.0.1",
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "kill-port": "^2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
