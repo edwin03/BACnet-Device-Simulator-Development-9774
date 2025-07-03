@@ -1,47 +1,60 @@
-// Dynamic API base URL detection
-const getApiBaseUrl = () => {
-  // Try common ports
-  const commonPorts = [3001, 3002, 3003, 3004, 3005];
-  
-  // In development, we'll use the default
-  if (import.meta.env.DEV) {
-    return 'http://localhost:3001/api';
-  }
-  
-  // For production, use relative path
-  return '/api';
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
 class BACnetAPI {
   constructor() {
-    this.baseURL = API_BASE_URL;
     this.retryPorts = [3001, 3002, 3003, 3004, 3005];
     this.currentPortIndex = 0;
+    this.baseURL = null;
+    this.lastWorkingPort = null;
   }
 
   async makeRequest(endpoint, options = {}) {
+    // If we have a working port, try it first
+    if (this.lastWorkingPort) {
+      try {
+        const url = `http://localhost:${this.lastWorkingPort}/api${endpoint}`;
+        const response = await fetch(url, {
+          ...options,
+          timeout: 5000 // 5 second timeout
+        });
+        
+        if (response.ok) {
+          return response;
+        }
+      } catch (error) {
+        console.warn(`Last working port ${this.lastWorkingPort} failed:`, error.message);
+        this.lastWorkingPort = null;
+      }
+    }
+
+    // Try all ports
     const maxRetries = this.retryPorts.length;
+    let lastError = null;
     
     for (let i = 0; i < maxRetries; i++) {
       const port = this.retryPorts[this.currentPortIndex];
       const url = `http://localhost:${port}/api${endpoint}`;
       
       try {
-        const response = await fetch(url, options);
+        const response = await fetch(url, {
+          ...options,
+          timeout: 3000 // 3 second timeout per port
+        });
+        
         if (response.ok) {
-          // Update base URL if we found a working port
+          this.lastWorkingPort = port;
           this.baseURL = `http://localhost:${port}/api`;
           return response;
+        } else {
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
       } catch (error) {
-        console.warn(`Failed to connect to port ${port}:`, error.message);
-        this.currentPortIndex = (this.currentPortIndex + 1) % this.retryPorts.length;
+        lastError = error;
+        console.warn(`Port ${port} failed:`, error.message);
       }
+      
+      this.currentPortIndex = (this.currentPortIndex + 1) % this.retryPorts.length;
     }
     
-    throw new Error('Unable to connect to BACnet server on any port');
+    throw lastError || new Error('Unable to connect to BACnet server on any port');
   }
 
   async getDevice() {

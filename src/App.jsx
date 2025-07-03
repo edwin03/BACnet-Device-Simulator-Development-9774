@@ -6,6 +6,7 @@ import DeviceManager from './components/DeviceManager';
 import PointsManager from './components/PointsManager';
 import SimulationControl from './components/SimulationControl';
 import StatusPanel from './components/StatusPanel';
+import ServerStatus from './components/ServerStatus';
 import { BACnetProvider } from './context/BACnetContext';
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
         <div className="min-h-screen bg-gradient-to-br from-bacnet-gray-50 to-bacnet-gray-100">
           <Header />
           <main className="container mx-auto px-4 py-8">
+            <ServerStatus />
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/device" element={<DeviceManager />} />

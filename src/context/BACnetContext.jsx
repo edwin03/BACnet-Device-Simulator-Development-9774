@@ -24,23 +24,27 @@ const initialState = {
     autoUpdate: false
   },
   logs: [],
-  isConnected: false
+  isConnected: false,
+  connectionAttempts: 0,
+  lastConnectionAttempt: null
 };
 
 function bacnetReducer(state, action) {
   switch (action.type) {
     case 'SET_CONNECTED':
-      return { ...state, isConnected: action.payload };
-    
+      return { ...state, isConnected: action.payload, connectionAttempts: 0 };
+    case 'INCREMENT_CONNECTION_ATTEMPTS':
+      return { 
+        ...state, 
+        connectionAttempts: state.connectionAttempts + 1,
+        lastConnectionAttempt: new Date().toISOString()
+      };
     case 'SYNC_STATE':
       return { ...state, ...action.payload };
-    
     case 'UPDATE_DEVICE':
       return { ...state, device: { ...state.device, ...action.payload } };
-    
     case 'SET_DEVICE_ONLINE':
       return { ...state, device: { ...state.device, isOnline: action.payload } };
-    
     case 'ADD_ANALOG_INPUT':
       const newAnalogInput = {
         id: uuidv4(),
@@ -57,7 +61,6 @@ function bacnetReducer(state, action) {
         lastUpdate: new Date().toISOString()
       };
       return { ...state, analogInputs: [...state.analogInputs, newAnalogInput] };
-    
     case 'ADD_BINARY_INPUT':
       const newBinaryInput = {
         id: uuidv4(),
@@ -71,7 +74,6 @@ function bacnetReducer(state, action) {
         lastUpdate: new Date().toISOString()
       };
       return { ...state, binaryInputs: [...state.binaryInputs, newBinaryInput] };
-    
     case 'UPDATE_ANALOG_INPUT':
       return {
         ...state,
@@ -81,7 +83,6 @@ function bacnetReducer(state, action) {
             : input
         )
       };
-    
     case 'UPDATE_BINARY_INPUT':
       return {
         ...state,
@@ -91,22 +92,12 @@ function bacnetReducer(state, action) {
             : input
         )
       };
-    
     case 'DELETE_ANALOG_INPUT':
-      return {
-        ...state,
-        analogInputs: state.analogInputs.filter(input => input.id !== action.payload)
-      };
-    
+      return { ...state, analogInputs: state.analogInputs.filter(input => input.id !== action.payload) };
     case 'DELETE_BINARY_INPUT':
-      return {
-        ...state,
-        binaryInputs: state.binaryInputs.filter(input => input.id !== action.payload)
-      };
-    
+      return { ...state, binaryInputs: state.binaryInputs.filter(input => input.id !== action.payload) };
     case 'UPDATE_SIMULATION':
       return { ...state, simulation: { ...state.simulation, ...action.payload } };
-    
     case 'ADD_LOG':
       return {
         ...state,
@@ -121,10 +112,8 @@ function bacnetReducer(state, action) {
           ...state.logs.slice(0, 99) // Keep only last 100 logs
         ]
       };
-    
     case 'CLEAR_LOGS':
       return { ...state, logs: [] };
-    
     default:
       return state;
   }
@@ -133,41 +122,87 @@ function bacnetReducer(state, action) {
 export function BACnetProvider({ children }) {
   const [state, dispatch] = useReducer(bacnetReducer, initialState);
 
-  // Connect to BACnet server
+  // Connect to BACnet server with improved retry logic
   useEffect(() => {
+    let retryTimeout;
+    let syncInterval;
+
     const connectToServer = async () => {
       try {
+        dispatch({ type: 'INCREMENT_CONNECTION_ATTEMPTS' });
+        
         const deviceData = await bacnetApi.getDevice();
         dispatch({ type: 'SYNC_STATE', payload: deviceData });
         dispatch({ type: 'SET_CONNECTED', payload: true });
-        dispatch({
-          type: 'ADD_LOG',
-          payload: {
-            level: 'success',
-            message: 'Connected to BACnet server',
-            category: 'connection'
-          }
-        });
+        
+        // Only log success on first connection or after being disconnected
+        if (!state.isConnected) {
+          dispatch({
+            type: 'ADD_LOG',
+            payload: {
+              level: 'success',
+              message: 'Connected to BACnet server',
+              category: 'connection'
+            }
+          });
+        }
       } catch (error) {
-        console.error('Failed to connect to BACnet server:', error);
-        dispatch({
-          type: 'ADD_LOG',
-          payload: {
-            level: 'error',
-            message: 'Failed to connect to BACnet server. Make sure the server is running.',
-            category: 'connection'
-          }
-        });
+        console.warn('Connection attempt failed:', error.message);
+        
+        if (state.isConnected) {
+          dispatch({ type: 'SET_CONNECTED', payload: false });
+          dispatch({
+            type: 'ADD_LOG',
+            payload: {
+              level: 'warning',
+              message: 'Lost connection to BACnet server',
+              category: 'connection'
+            }
+          });
+        }
+        
+        // Only log error after multiple attempts
+        if (state.connectionAttempts >= 3) {
+          dispatch({
+            type: 'ADD_LOG',
+            payload: {
+              level: 'error',
+              message: 'Failed to connect to BACnet server. Make sure the server is running.',
+              category: 'connection'
+            }
+          });
+        }
       }
     };
 
-    connectToServer();
-    
-    // Periodic sync with server
-    const syncInterval = setInterval(connectToServer, 5000);
-    
-    return () => clearInterval(syncInterval);
-  }, []);
+    // Initial connection attempt with delay
+    const initialConnect = () => {
+      setTimeout(connectToServer, 1000); // Wait 1 second before first attempt
+    };
+
+    // Start initial connection
+    initialConnect();
+
+    // Set up periodic sync only after initial connection
+    const setupSync = () => {
+      syncInterval = setInterval(() => {
+        if (state.isConnected) {
+          connectToServer();
+        } else {
+          // Retry connection every 5 seconds when disconnected
+          connectToServer();
+        }
+      }, state.isConnected ? 10000 : 5000); // 10s when connected, 5s when disconnected
+    };
+
+    // Setup sync after initial delay
+    setTimeout(setupSync, 2000);
+
+    return () => {
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (syncInterval) clearInterval(syncInterval);
+    };
+  }, [state.isConnected, state.connectionAttempts]);
 
   // Auto-update simulation
   useEffect(() => {
@@ -196,11 +231,8 @@ export function BACnetProvider({ children }) {
         state.binaryInputs.forEach(async (input) => {
           if (!input.outOfService && Math.random() < 0.1) { // 10% chance to toggle
             const newValue = input.presentValue === 'active' ? 'inactive' : 'active';
-            
             try {
-              await bacnetApi.updateBinaryInput(input.id, {
-                presentValue: newValue
-              });
+              await bacnetApi.updateBinaryInput(input.id, { presentValue: newValue });
             } catch (error) {
               console.error('Failed to update binary input:', error);
             }
@@ -226,7 +258,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       setDeviceOnline: async (online) => {
         dispatch({ type: 'SET_DEVICE_ONLINE', payload: online });
         if (state.isConnected) {
@@ -237,7 +268,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       addAnalogInput: async (input) => {
         dispatch({ type: 'ADD_ANALOG_INPUT', payload: input });
         if (state.isConnected) {
@@ -248,7 +278,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       addBinaryInput: async (input) => {
         dispatch({ type: 'ADD_BINARY_INPUT', payload: input });
         if (state.isConnected) {
@@ -259,7 +288,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       updateAnalogInput: async (id, updates) => {
         dispatch({ type: 'UPDATE_ANALOG_INPUT', payload: { id, updates } });
         if (state.isConnected) {
@@ -270,7 +298,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       updateBinaryInput: async (id, updates) => {
         dispatch({ type: 'UPDATE_BINARY_INPUT', payload: { id, updates } });
         if (state.isConnected) {
@@ -281,7 +308,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       deleteAnalogInput: async (id) => {
         dispatch({ type: 'DELETE_ANALOG_INPUT', payload: id });
         if (state.isConnected) {
@@ -292,7 +318,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       deleteBinaryInput: async (id) => {
         dispatch({ type: 'DELETE_BINARY_INPUT', payload: id });
         if (state.isConnected) {
@@ -303,7 +328,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       updateSimulation: async (updates) => {
         dispatch({ type: 'UPDATE_SIMULATION', payload: updates });
         if (state.isConnected) {
@@ -314,7 +338,6 @@ export function BACnetProvider({ children }) {
           }
         }
       },
-      
       addLog: (log) => dispatch({ type: 'ADD_LOG', payload: log }),
       clearLogs: () => dispatch({ type: 'CLEAR_LOGS' })
     }

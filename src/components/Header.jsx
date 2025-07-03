@@ -4,8 +4,9 @@ import { motion } from 'framer-motion';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { useBACnet } from '../context/BACnetContext';
+import ConnectionStatus from './ConnectionStatus';
 
-const { FiHome, FiSettings, FiDatabase, FiPlay, FiWifi, FiWifiOff, FiServer } = FiIcons;
+const { FiHome, FiSettings, FiDatabase, FiPlay, FiWifi, FiWifiOff } = FiIcons;
 
 function Header() {
   const location = useLocation();
@@ -51,21 +52,8 @@ function Header() {
           </nav>
 
           <div className="flex items-center space-x-4">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
-                state.isConnected
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-red-100 text-red-700'
-              }`}
-            >
-              <SafeIcon icon={state.isConnected ? FiServer : FiWifiOff} className="text-xs" />
-              <span>
-                {state.isConnected ? 'Connected' : 'Disconnected'}
-              </span>
-            </motion.div>
-
+            <ConnectionStatus />
+            
             <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -80,7 +68,7 @@ function Header() {
                 {state.device.isOnline ? 'Online' : 'Offline'}
               </span>
             </motion.div>
-
+            
             <div className="text-sm text-bacnet-gray-600">
               Device ID: {state.device.id}
             </div>
